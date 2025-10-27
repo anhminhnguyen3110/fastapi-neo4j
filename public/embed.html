@@ -190,45 +190,137 @@
     let currentEmbedToken = null;
     let isDarkMode = true;
 
-    // Export PNG
+    // Export PNG with high resolution - FULL GRAPH
     function exportPNG(full) {
       if (!network) return;
       
       try {
-        // Get canvas element from vis.js network
-        const canvas = network.canvas.body.container.getElementsByTagName('canvas')[0];
-        if (!canvas) {
-          alert('Cannot access canvas for export');
-          return;
-        }
-
         if (full) {
-          // Temporarily fit all nodes, then export
+          // Hiển thị thông báo đang xử lý
+          const loadingMsg = document.createElement('div');
+          loadingMsg.style.cssText = 'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);background:rgba(0,0,0,0.9);color:#fff;padding:20px 40px;border-radius:8px;z-index:9999;font-size:16px;';
+          loadingMsg.textContent = 'Đang export full graph với high resolution... Vui lòng chờ!';
+          document.body.appendChild(loadingMsg);
+
+          // Lưu trạng thái hiện tại
+          const container = document.getElementById('viz');
+          const originalWidth = container.style.width;
+          const originalHeight = container.style.height;
           const currentView = network.getViewPosition();
           const currentScale = network.getScale();
+          const currentPhysics = network.physics.physicsEnabled;
           
+          // Disable physics
+          network.setOptions({ physics: false });
+          
+          // Tính toán bounding box của toàn bộ graph
+          const positions = network.getPositions();
+          let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+          
+          Object.values(positions).forEach(pos => {
+            if (pos.x < minX) minX = pos.x;
+            if (pos.x > maxX) maxX = pos.x;
+            if (pos.y < minY) minY = pos.y;
+            if (pos.y > maxY) maxY = pos.y;
+          });
+          
+          // Thêm padding (20% mỗi bên)
+          const padding = 100;
+          const graphWidth = (maxX - minX) + padding * 2;
+          const graphHeight = (maxY - minY) + padding * 2;
+          
+          // Tính kích thước canvas tối ưu (tối thiểu 2000px, tối đa 8000px)
+          const targetSize = Math.max(2000, Math.min(8000, Math.max(graphWidth, graphHeight)));
+          const aspectRatio = graphWidth / graphHeight;
+          
+          let canvasWidth, canvasHeight;
+          if (aspectRatio > 1) {
+            canvasWidth = targetSize;
+            canvasHeight = targetSize / aspectRatio;
+          } else {
+            canvasHeight = targetSize;
+            canvasWidth = targetSize * aspectRatio;
+          }
+          
+          // Resize container tạm thời
+          container.style.width = canvasWidth + 'px';
+          container.style.height = canvasHeight + 'px';
+          
+          // Trigger redraw
+          network.redraw();
           network.fit({ animation: false });
           
+          // Đợi để render hoàn tất
           setTimeout(() => {
-            const dataURL = canvas.toDataURL('image/png');
-            downloadImage(dataURL, 'graph-full.png');
+            const canvas = network.canvas.body.container.getElementsByTagName('canvas')[0];
             
-            // Restore original view
-            network.moveTo({ 
-              position: currentView, 
-              scale: currentScale, 
-              animation: false 
-            });
-          }, 500);
+            // Export với resolution cao (scale 2x nữa)
+            const scale = 2;
+            const highResCanvas = document.createElement('canvas');
+            highResCanvas.width = canvas.width * scale;
+            highResCanvas.height = canvas.height * scale;
+            const ctx = highResCanvas.getContext('2d');
+            
+            ctx.scale(scale, scale);
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
+            ctx.fillStyle = isDarkMode ? '#2a2a2a' : '#ffffff';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            ctx.drawImage(canvas, 0, 0);
+            
+            // Export
+            const dataURL = highResCanvas.toDataURL('image/png', 1.0);
+            downloadImage(dataURL, `graph-full-${canvasWidth}x${canvasHeight}-hd.png`);
+            
+            // Restore container size
+            container.style.width = originalWidth;
+            container.style.height = originalHeight;
+            
+            // Trigger redraw và restore view
+            network.redraw();
+            setTimeout(() => {
+              network.moveTo({ 
+                position: currentView, 
+                scale: currentScale, 
+                animation: false 
+              });
+              if (currentPhysics) {
+                network.setOptions({ physics: true });
+              }
+              loadingMsg.remove();
+            }, 300);
+          }, 1500); // Đợi 1.5 giây để render hoàn chỉnh
+          
         } else {
-          const dataURL = canvas.toDataURL('image/png');
-          downloadImage(dataURL, 'graph-viewport.png');
+          // Viewport export with 2x resolution
+          const canvas = network.canvas.body.container.getElementsByTagName('canvas')[0];
+          if (!canvas) {
+            alert('Cannot access canvas for export');
+            return;
+          }
+          
+          const scale = 2;
+          const highResCanvas = document.createElement('canvas');
+          highResCanvas.width = canvas.width * scale;
+          highResCanvas.height = canvas.height * scale;
+          const ctx = highResCanvas.getContext('2d');
+          
+          ctx.scale(scale, scale);
+          ctx.imageSmoothingEnabled = true;
+          ctx.imageSmoothingQuality = 'high';
+          ctx.fillStyle = isDarkMode ? '#2a2a2a' : '#ffffff';
+          ctx.fillRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(canvas, 0, 0);
+          
+          const dataURL = highResCanvas.toDataURL('image/png', 1.0);
+          downloadImage(dataURL, 'graph-viewport-hd.png');
         }
       } catch (error) {
         console.error('PNG export error:', error);
         alert('Failed to export PNG: ' + error.message);
       }
     }
+    
     function downloadImage(dataURL, filename) {
       const a = document.createElement('a');
       a.href = dataURL;
