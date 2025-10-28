@@ -1059,20 +1059,48 @@
               enabled: true,
               direction: 'UD',
               sortMethod: 'directed'
+            },
+            physics: {
+              enabled: true,
+              hierarchicalRepulsion: {
+                centralGravity: 0.0,
+                springLength: 100,
+                springConstant: 0.01,
+                nodeDistance: 120,
+                damping: 0.09
+              },
+              maxVelocity: 50,
+              minVelocity: 0.75,
+              solver: 'hierarchicalRepulsion',
+              stabilization: {
+                enabled: true,
+                iterations: 1000,
+                updateInterval: 25
+              }
             }
           };
           break;
         case 'circular':
           layoutOptions = {
             layout: {
-              improvedLayout: false
+              improvedLayout: true
             },
             physics: {
               enabled: true,
               barnesHut: {
-                gravitationalConstant: -8000,
-                springConstant: 0.04,
-                springLength: 95
+                gravitationalConstant: -2000,
+                springConstant: 0.05,
+                springLength: 100,
+                damping: 0.09,
+                avoidOverlap: 0.5
+              },
+              maxVelocity: 30,
+              minVelocity: 0.75,
+              stabilization: {
+                enabled: true,
+                iterations: 1000,
+                updateInterval: 25,
+                fit: true
               }
             }
           };
@@ -1088,9 +1116,19 @@
             physics: {
               enabled: true,
               barnesHut: {
-                gravitationalConstant: -30000,
-                springConstant: 0.001,
-                springLength: 200
+                gravitationalConstant: -8000,
+                springConstant: 0.002,
+                springLength: 150,
+                damping: 0.09,
+                avoidOverlap: 0.5
+              },
+              maxVelocity: 50,
+              minVelocity: 0.75,
+              stabilization: {
+                enabled: true,
+                iterations: 1000,
+                updateInterval: 25,
+                fit: true
               }
             }
           };
@@ -1344,12 +1382,12 @@
         body.classList.add('light');
         btn.textContent = '☀️ Dark Mode';
         
-        // Update network colors for light mode - FIX for node labels
+        // Update network colors for light mode
         if (network) {
           network.setOptions({
             nodes: {
               font: {
-                color: '#000000'  // Fixed: black text in light mode
+                color: '#000000'
               }
             },
             edges: {
@@ -1386,7 +1424,7 @@
     // Get token from URL
     const urlParams = new URLSearchParams(globalThis.location.search);
     const token = urlParams.get('token') || globalThis.location.pathname.split('/').pop();
-    currentEmbedToken = token; // Store in global variable
+    currentEmbedToken = token;
 
     let lastSearchedNodeId = null;
 
@@ -1422,20 +1460,16 @@
       
       // Transform to vis.js format
       const visNodes = mockNodes.map(node => ({
-        id: node.id,
-        label: node.label,
+        ...node,
         title: `${node.type}: ${JSON.stringify(node, null, 2)}`,
         color: stringToColor(node.type),
-        font: { color: isDarkMode ? '#fff' : '#000' }, // Fixed: black text in light mode
+        font: { color: isDarkMode ? '#fff' : '#000' },
         properties: node,
         originalLabel: node.type
       }));
       
       const visEdges = mockEdges.map(edge => ({
-        id: edge.id,
-        from: edge.from,
-        to: edge.to,
-        label: edge.label,
+        ...edge,
         title: JSON.stringify(edge, null, 2),
         arrows: 'to',
         color: { color: stringToColor(edge.label) },
@@ -1465,7 +1499,7 @@
           size: 30,
           font: {
             size: 14,
-            color: isDarkMode ? '#fff' : '#000' // Fixed: black text in light mode
+            color: isDarkMode ? '#fff' : '#000'
           },
           borderWidth: 2
         },
@@ -1485,13 +1519,21 @@
         },
         physics: {
           stabilization: {
-            iterations: 200
+            enabled: true,
+            iterations: 1000,
+            updateInterval: 25,
+            fit: true
           },
           barnesHut: {
-            gravitationalConstant: -30000,
-            springConstant: 0.001,
-            springLength: 200
-          }
+            gravitationalConstant: -8000,
+            springConstant: 0.002,
+            springLength: 150,
+            damping: 0.09,
+            avoidOverlap: 0.5
+          },
+          maxVelocity: 50,
+          minVelocity: 0.75,
+          solver: 'barnesHut'
         },
         interaction: {
           hover: true,
@@ -1508,6 +1550,20 @@
       };
       
       network = new vis.Network(container, data, options);
+      
+      // Drag & drop: fix node position after dragging to prevent floating
+      network.on('dragEnd', function(params) {
+        if (params.nodes.length > 0) {
+          params.nodes.forEach(nodeId => {
+            const position = network.getPositions([nodeId])[nodeId];
+            nodes.update({ id: nodeId, fixed: { x: true, y: true } });
+            // Re-enable physics after a short delay to allow surrounding nodes to adjust
+            setTimeout(() => {
+              nodes.update({ id: nodeId, fixed: false });
+            }, 100);
+          });
+        }
+      });
       
       // Save initial view
       globalThis.initialView = network.getViewPosition ? network.getViewPosition() : null;
@@ -1621,19 +1677,19 @@
         // Transform Neo4j data to vis.js format
         const visNodes = [];
         const visEdges = [];
-        const nodeIds = new Set(); // Track unique node IDs
-        const edgeIds = new Set(); // Track unique edge IDs
+        const nodeIds = new Set();
+        const edgeIds = new Set();
 
         // Helper to add a node if not exists
         function addNode(id, label, props, originalLabel) {
           if (!nodeIds.has(id)) {
             const displayLabel = (props && (props.name || props.title)) || id;
             visNodes.push({
-              id: id,
+              id,
               label: displayLabel,
               title: `${label}: ${JSON.stringify(props || {})}`,
               color: stringToColor(label || 'Node'),
-              font: { color: isDarkMode ? '#fff' : '#000' }, // Fixed: black text in light mode
+              font: { color: isDarkMode ? '#fff' : '#000' },
               properties: props,
               originalLabel: originalLabel || label
             });
@@ -1672,12 +1728,10 @@
           });
         } else if (Array.isArray(queryResult.data)) {
           // Tabular rows: try to map row values to nodes/relationships
-          // Use a signature map to dedupe nodes by label+key (e.g., Person:Keanu Reeves)
           const nodeSigToId = new Map();
           let syntheticIdCounter = 1;
 
           function makeNodeId(label, props) {
-            // prefer name or title as stable identifier
             const key = props && (props.name || props.title || props.id);
             const sig = label + '::' + (key || JSON.stringify(props || {}));
             if (nodeSigToId.has(sig)) return nodeSigToId.get(sig);
@@ -1687,7 +1741,6 @@
           }
 
           queryResult.data.forEach((row, rowIndex) => {
-            // row may be an object with keys mapping to values
             if (row && typeof row === 'object') {
               Object.entries(row).forEach(([key, val]) => {
                 // Relationship encoded as array [startProps, type, endProps]
@@ -1696,7 +1749,6 @@
                   const relType = val[1] || 'REL';
                   const endProps = val[2] || {};
 
-                  // Infer labels from data, not fixed to Person/Movie
                   const startLabel = Object.keys(startProps).length > 0 ? 
                     (startProps.label || 'Node') : 'Node';
                   const endLabel = Object.keys(endProps).length > 0 ? 
@@ -1724,9 +1776,7 @@
                   }
                 } else if (val && typeof val === 'object') {
                   // Plain object — treat as node
-                  // Use the actual label from data if available
                   let label = (key && key.length <= 3) ? key.toUpperCase() : (key.charAt(0).toUpperCase() + key.slice(1));
-                  // If object contains label, use it
                   if (val.label) label = val.label;
                   else if (val.title) label = 'Movie';
                   else if (val.name) label = 'Person';
@@ -1738,7 +1788,6 @@
             }
           });
         } else {
-          // Unexpected shape: show no nodes
           console.warn('Unexpected queryResult.data shape', queryResult.data);
         }
 
@@ -1764,7 +1813,7 @@
             size: 30,
             font: {
               size: 14,
-              color: isDarkMode ? '#fff' : '#000' // Fixed: black text in light mode
+              color: isDarkMode ? '#fff' : '#000'
             },
             borderWidth: 2
           },
@@ -1784,13 +1833,21 @@
           },
           physics: {
             stabilization: {
-              iterations: 200
+              enabled: true,
+              iterations: 1000,
+              updateInterval: 25,
+              fit: true
             },
             barnesHut: {
-              gravitationalConstant: -30000,
-              springConstant: 0.001,
-              springLength: 200
-            }
+              gravitationalConstant: -8000,
+              springConstant: 0.002,
+              springLength: 150,
+              damping: 0.09,
+              avoidOverlap: 0.5
+            },
+            maxVelocity: 50,
+            minVelocity: 0.75,
+            solver: 'barnesHut'
           },
           interaction: {
             hover: true,
@@ -1807,11 +1864,21 @@
         };
 
         network = new vis.Network(container, data, options);
-        // Drag & drop: keep node position after moving
+        
+        // Drag & drop: fix node position after dragging to prevent floating
         network.on('dragEnd', function(params) {
-          // We keep physics enabled for better drag and drop experience
-          network.setOptions({ physics: true });
+          if (params.nodes.length > 0) {
+            params.nodes.forEach(nodeId => {
+              const position = network.getPositions([nodeId])[nodeId];
+              nodes.update({ id: nodeId, fixed: { x: true, y: true } });
+              // Re-enable physics after a short delay to allow surrounding nodes to adjust
+              setTimeout(() => {
+                nodes.update({ id: nodeId, fixed: false });
+              }, 100);
+            });
+          }
         });
+        
         // Save initial view
         globalThis.initialView = network.getViewPosition ? network.getViewPosition() : null;
 
@@ -1844,7 +1911,6 @@
         showToast('Graph visualization loaded successfully!');
 
       } catch (error) {
-        // Ensure we show a useful error message even when `error` is an object
         console.error('Error:', error);
         document.getElementById('loading').classList.add('hidden');
         document.getElementById('error').classList.add('show');

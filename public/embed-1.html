@@ -390,7 +390,7 @@
       justify-content: flex-end;
     }
 
-    /* Detail Panel - Moved to top left */
+    /* Detail Panel - Top left */
     .detail-panel {
       position: absolute;
       top: 20px;
@@ -1041,7 +1041,7 @@
       showToast('Configuration applied successfully');
     }
 
-    // Change layout
+    // Change layout - Fixed to prevent nodes from floating
     function changeLayout() {
       if (!network) return;
       
@@ -1058,7 +1058,12 @@
             hierarchical: {
               enabled: true,
               direction: 'UD',
-              sortMethod: 'directed'
+              sortMethod: 'directed',
+              levelSeparation: 150,
+              nodeSpacing: 100
+            },
+            physics: {
+              enabled: false // Disable physics for stable layout
             }
           };
           break;
@@ -1068,12 +1073,7 @@
               improvedLayout: false
             },
             physics: {
-              enabled: true,
-              barnesHut: {
-                gravitationalConstant: -8000,
-                springConstant: 0.04,
-                springLength: 95
-              }
+              enabled: false // Disable physics for stable layout
             }
           };
           break;
@@ -1086,18 +1086,15 @@
               improvedLayout: true
             },
             physics: {
-              enabled: true,
-              barnesHut: {
-                gravitationalConstant: -30000,
-                springConstant: 0.001,
-                springLength: 200
-              }
+              enabled: false // Disable physics for stable layout
             }
           };
       }
       
       network.setOptions(layoutOptions);
-      network.stabilize();
+      
+      // Use fit instead of stabilize for better control
+      network.fit({ animation: true });
       showToast(`Layout changed to: ${currentLayout}`);
     }
 
@@ -1116,9 +1113,8 @@
           const originalHeight = container.style.height;
           const currentView = network.getViewPosition();
           const currentScale = network.getScale();
-          const currentPhysics = network.physics.physicsEnabled;
           
-          // Disable physics
+          // Disable physics for stable export
           network.setOptions({ physics: false });
           
           // Calculate bounding box of entire graph
@@ -1192,9 +1188,10 @@
                 scale: currentScale, 
                 animation: false 
               });
-              if (currentPhysics) {
-                network.setOptions({ physics: true });
-              }
+              
+              // Re-enable physics if needed
+              network.setOptions({ physics: false });
+              
               showToast('Full graph exported successfully!');
             }, 300);
           }, 1500); // Wait 1.5 seconds for complete rendering
@@ -1297,20 +1294,124 @@
       showToast('Content copied to clipboard!');
     }
 
-    // Update detail panel
+    // Update detail panel with clean format
     function updateDetailPanel(title, content) {
       const detailPanel = document.getElementById('detail-panel');
       const detailContent = document.getElementById('detail-panel-content');
       
-      detailContent.innerHTML = `
-        <div><strong>${title}</strong></div>
-        <pre>${content}</pre>
-      `;
+      try {
+        const data = JSON.parse(content);
+        let formattedContent = '';
+        
+        if (title.startsWith('Node:')) {
+          formattedContent = formatNodeDetails(data);
+        } else if (title.startsWith('Edge:')) {
+          formattedContent = formatEdgeDetails(data);
+        } else {
+          formattedContent = `<pre>${content}</pre>`;
+        }
+        
+        detailContent.innerHTML = `
+          <div><strong>${title}</strong></div>
+          ${formattedContent}
+        `;
+      } catch (e) {
+        // If not JSON, display as plain text
+        detailContent.innerHTML = `
+          <div><strong>${title}</strong></div>
+          <pre>${content}</pre>
+        `;
+      }
       
       // Ensure the panel is visible
       if (detailPanel.style.display === 'none') {
         detailPanel.style.display = 'block';
       }
+    }
+
+    // Format node details in a clean way
+    function formatNodeDetails(node) {
+      let html = '<div class="node-details">';
+      
+      // Basic info
+      html += `<div class="detail-section">
+        <h4>Basic Information</h4>
+        <div class="detail-item"><strong>ID:</strong> ${node.id}</div>
+        <div class="detail-item"><strong>Label:</strong> ${node.label || 'N/A'}</div>
+        <div class="detail-item"><strong>Type:</strong> ${node.originalLabel || 'N/A'}</div>
+      </div>`;
+      
+      // Properties
+      if (node.properties && Object.keys(node.properties).length > 0) {
+        html += `<div class="detail-section">
+          <h4>Properties</h4>`;
+        
+        Object.entries(node.properties).forEach(([key, value]) => {
+          if (key !== 'id' && key !== 'label') {
+            html += `<div class="detail-item"><strong>${key}:</strong> ${formatPropertyValue(value)}</div>`;
+          }
+        });
+        
+        html += '</div>';
+      }
+      
+      // Vis.js specific properties
+      html += `<div class="detail-section">
+        <h4>Display Properties</h4>
+        <div class="detail-item"><strong>Color:</strong> ${node.color || 'N/A'}</div>
+        <div class="detail-item"><strong>Font Color:</strong> ${node.font?.color || 'N/A'}</div>
+      </div>`;
+      
+      html += '</div>';
+      
+      return html;
+    }
+
+    // Format edge details in a clean way
+    function formatEdgeDetails(edge) {
+      let html = '<div class="edge-details">';
+      
+      // Basic info
+      html += `<div class="detail-section">
+        <h4>Basic Information</h4>
+        <div class="detail-item"><strong>ID:</strong> ${edge.id}</div>
+        <div class="detail-item"><strong>Label:</strong> ${edge.label || 'N/A'}</div>
+        <div class="detail-item"><strong>Type:</strong> ${edge.originalType || 'N/A'}</div>
+        <div class="detail-item"><strong>From:</strong> ${edge.from}</div>
+        <div class="detail-item"><strong>To:</strong> ${edge.to}</div>
+      </div>`;
+      
+      // Properties
+      if (edge.properties && Object.keys(edge.properties).length > 0) {
+        html += `<div class="detail-section">
+          <h4>Properties</h4>`;
+        
+        Object.entries(edge.properties).forEach(([key, value]) => {
+          if (key !== 'id' && key !== 'label' && key !== 'from' && key !== 'to') {
+            html += `<div class="detail-item"><strong>${key}:</strong> ${formatPropertyValue(value)}</div>`;
+          }
+        });
+        
+        html += '</div>';
+      }
+      
+      // Vis.js specific properties
+      html += `<div class="detail-section">
+        <h4>Display Properties</h4>
+        <div class="detail-item"><strong>Color:</strong> ${edge.color?.color || 'N/A'}</div>
+        <div class="detail-item"><strong>Arrows:</strong> ${edge.arrows || 'N/A'}</div>
+      </div>`;
+      
+      html += '</div>';
+      
+      return html;
+    }
+
+    // Format property values for display
+    function formatPropertyValue(value) {
+      if (value === null || value === undefined) return 'N/A';
+      if (typeof value === 'object') return JSON.stringify(value);
+      return String(value);
     }
 
     // Theme toggle logic
@@ -1390,6 +1491,20 @@
 
     let lastSearchedNodeId = null;
 
+    // Color generator for labels/types
+    function stringToColor(str) {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        hash = str.charCodeAt(i) + ((hash << 5) - hash);
+      }
+      let color = '#';
+      for (let i = 0; i < 3; i++) {
+        const value = (hash >> (i * 8)) & 0xFF;
+        color += ('00' + value.toString(16)).slice(-2);
+      }
+      return color;
+    }
+
     // Load mock data for testing
     function loadMockData() {
       // Hide loading if visible
@@ -1420,22 +1535,18 @@
         { id: '10', from: '3', to: '4', label: 'PARTNERS_WITH', since: '2021' }
       ];
       
-      // Transform to vis.js format
+      // Transform to vis.js format using spread operator
       const visNodes = mockNodes.map(node => ({
-        id: node.id,
-        label: node.label,
+        ...node, // Spread all properties from the original node
         title: `${node.type}: ${JSON.stringify(node, null, 2)}`,
         color: stringToColor(node.type),
-        font: { color: isDarkMode ? '#fff' : '#000' }, // Fixed: black text in light mode
+        font: { color: isDarkMode ? '#fff' : '#000' },
         properties: node,
         originalLabel: node.type
       }));
       
       const visEdges = mockEdges.map(edge => ({
-        id: edge.id,
-        from: edge.from,
-        to: edge.to,
-        label: edge.label,
+        ...edge, // Spread all properties from the original edge
         title: JSON.stringify(edge, null, 2),
         arrows: 'to',
         color: { color: stringToColor(edge.label) },
@@ -1465,7 +1576,7 @@
           size: 30,
           font: {
             size: 14,
-            color: isDarkMode ? '#fff' : '#000' // Fixed: black text in light mode
+            color: isDarkMode ? '#fff' : '#000'
           },
           borderWidth: 2
         },
@@ -1484,13 +1595,9 @@
           }
         },
         physics: {
+          enabled: false, // Disable physics to prevent floating nodes
           stabilization: {
-            iterations: 200
-          },
-          barnesHut: {
-            gravitationalConstant: -30000,
-            springConstant: 0.001,
-            springLength: 200
+            iterations: 100
           }
         },
         interaction: {
@@ -1502,8 +1609,7 @@
           selectConnectedEdges: true
         },
         manipulation: {
-          enabled: true,
-          initiallyActive: false
+          enabled: false
         }
       };
       
@@ -1529,27 +1635,7 @@
       document.getElementById('node-count').textContent = `Nodes: ${visNodes.length}`;
       document.getElementById('rel-count').textContent = `Relationships: ${visEdges.length}`;
       
-      // Handle stabilization
-      network.on('stabilizationIterationsDone', function() {
-        // We keep physics enabled for drag and drop
-        network.setOptions({ physics: true });
-      });
-      
       showToast('Mock data loaded successfully!');
-    }
-
-    // Color generator for labels/types
-    function stringToColor(str) {
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-        hash = str.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      let color = '#';
-      for (let i = 0; i < 3; i++) {
-        const value = (hash >> (i * 8)) & 0xFF;
-        color += ('00' + value.toString(16)).slice(-2);
-      }
-      return color;
     }
 
     async function loadVisualization() {
@@ -1633,7 +1719,7 @@
               label: displayLabel,
               title: `${label}: ${JSON.stringify(props || {})}`,
               color: stringToColor(label || 'Node'),
-              font: { color: isDarkMode ? '#fff' : '#000' }, // Fixed: black text in light mode
+              font: { color: isDarkMode ? '#fff' : '#000' },
               properties: props,
               originalLabel: originalLabel || label
             });
@@ -1764,7 +1850,7 @@
             size: 30,
             font: {
               size: 14,
-              color: isDarkMode ? '#fff' : '#000' // Fixed: black text in light mode
+              color: isDarkMode ? '#fff' : '#000'
             },
             borderWidth: 2
           },
@@ -1783,13 +1869,9 @@
             }
           },
           physics: {
+            enabled: false, // Disable physics to prevent floating nodes
             stabilization: {
-              iterations: 200
-            },
-            barnesHut: {
-              gravitationalConstant: -30000,
-              springConstant: 0.001,
-              springLength: 200
+              iterations: 100
             }
           },
           interaction: {
@@ -1801,17 +1883,12 @@
             selectConnectedEdges: true
           },
           manipulation: {
-            enabled: true,
-            initiallyActive: false
+            enabled: false
           }
         };
 
         network = new vis.Network(container, data, options);
-        // Drag & drop: keep node position after moving
-        network.on('dragEnd', function(params) {
-          // We keep physics enabled for better drag and drop experience
-          network.setOptions({ physics: true });
-        });
+        
         // Save initial view
         globalThis.initialView = network.getViewPosition ? network.getViewPosition() : null;
 
@@ -1834,12 +1911,6 @@
         // Update stats
         document.getElementById('node-count').textContent = `Nodes: ${visNodes.length}`;
         document.getElementById('rel-count').textContent = `Relationships: ${visEdges.length}`;
-
-        // Handle stabilization
-        network.on('stabilizationIterationsDone', function() {
-          // We keep physics enabled for drag and drop
-          network.setOptions({ physics: true });
-        });
 
         showToast('Graph visualization loaded successfully!');
 
@@ -1897,5 +1968,43 @@
       }
     });
   </script>
+
+  <style>
+    /* Additional styles for clean detail formatting */
+    .node-details, .edge-details {
+      font-size: 14px;
+    }
+    
+    .detail-section {
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    
+    .detail-section h4 {
+      margin-bottom: 8px;
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--primary-color);
+    }
+    
+    .detail-item {
+      margin-bottom: 6px;
+      display: flex;
+    }
+    
+    .detail-item strong {
+      min-width: 120px;
+      margin-right: 8px;
+    }
+    
+    body.light .detail-section {
+      border-bottom: 1px solid rgba(0, 0, 0, 0.1);
+    }
+    
+    body.light .detail-section h4 {
+      color: var(--primary-dark);
+    }
+  </style>
 </body>
 </html>
